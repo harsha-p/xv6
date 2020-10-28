@@ -1,0 +1,14 @@
+1. syscall.c
+    extern int sys_waitx(void); 
+    [SYS_waitx] sys_waitx,
+ 
+2. syscall.h
+    #define SYS_waitx 22
+3. sysproc.c
+
+4. user.h
+    int waitx(int * ,int *);
+5. usys.S
+    SYSCALL(waitx)
+6. defs.h
+    int waitx(int *,int *);
