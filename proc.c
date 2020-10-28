@@ -130,6 +130,10 @@ found:
   acquire(&tickslock);
   p->c_time = ticks;
   p->w_time = ticks - p->lasttime;
+#ifdef MLFQ
+  p->priority = 0;
+  p->q[0] = ticks;
+#endif
   release(&tickslock);
   release(&ptable.lock);
   return p;
@@ -349,15 +353,14 @@ int wait(void)
 //      via swtch back to the scheduler.
 void scheduler(void)
 {
-  struct proc *p;
   struct cpu *c = mycpu();
+  struct proc *p;
   c->proc = 0;
-
   for (;;)
   {
     // Enable interrupts on this processor.
     sti();
-
+#ifdef RR
     // Loop over process table looking for process to run.
     acquire(&ptable.lock);
     for (p = ptable.proc; p < &ptable.proc[NPROC]; p++)
@@ -380,6 +383,81 @@ void scheduler(void)
       // It should have changed its p->state before coming back.
       c->proc = 0;
     }
+#else
+#ifdef FCFS
+    struct proc *min = p;
+    int found = 0;
+    min->c_time = 10000000;
+    min->pid = 1000000;
+    acquire(&ptable.lock);
+    for (p = ptable.proc; p < &ptable.proc[NPROC]; p++)
+    {
+      // cprintf("%d %s status\n", p->state, p->name);
+      if (p->state != RUNNABLE)
+        continue;
+      else
+      {
+        if (p->c_time < min->c_time)
+        {
+          found = 1;
+          min = p;
+        }
+        else if (p->c_time == min->c_time && p->pid < min->pid)
+        {
+          min = p;
+        }
+      }
+    }
+    if (found)
+    {
+      min->n_run++;
+      c->proc = min;
+      switchuvm(min);
+      min->state = RUNNING;
+      swtch(&(c->scheduler), min->context);
+      switchkvm();
+      c->proc = 0;
+    }
+#else
+#ifdef PBS
+    struct proc *min = p;
+    int found = 0;
+    min->priority = 200;
+    min->pid = 1000000;
+    acquire(&ptable.lock);
+    for (p = ptable.proc; p < &ptable.proc[NPROC]; p++)
+    {
+      if (p->state != RUNNABLE)
+        continue;
+      else
+      {
+        if (p->priority < min->priority)
+        {
+          found = 1;
+          min = p;
+        }
+        // else if (p->priority == min->priority && p->n_run < min->n_run)
+        // {
+        //   min = p;
+        // }
+      }
+    }
+    if (found)
+    {
+      min->n_run++;
+      c->proc = min;
+      switchuvm(min);
+      min->state = RUNNING;
+      swtch(&(c->scheduler), min->context);
+      switchkvm();
+      c->proc = 0;
+    }
+#else
+#ifdef MLFQ
+#endif
+#endif
+#endif
+#endif
     release(&ptable.lock);
   }
 }
@@ -588,26 +666,21 @@ int psinfo()
 {
   struct proc *p;
   acquire(&ptable.lock);
-  // cprintf("NPROC %d\n", NPROC);
-  // #ifdef DEFAULT
-  //   cprintf("DEFAULT\n");
-  // #else
-  // #ifdef RR
-  //   cprintf("RR\n");
-  // #else
-  // #ifdef MLFQ
-  //   cprintf("MLFQ\n");
-  // #else
-  // #ifdef FCFS
-  //   cprintf("FCFS\n");
-  // #else
-  // #ifdef PBS
-  //   cprintf("PBS\n");
-  // #endif
-  // #endif
-  // #endif
-  // #endif
-  // #endif
+#ifdef RR
+  cprintf("RR\n");
+#else
+#ifdef MLFQ
+  cprintf("MLFQ\n");
+#else
+#ifdef FCFS
+  cprintf("FCFS\n");
+#else
+#ifdef PBS
+  cprintf("PBS\n");
+#endif
+#endif
+#endif
+#endif
   cprintf("NAME\tPID\tPRIORITY\tSTATE\t\tr_time\tw_time\tn_run\tcur_q\tq0\tq1\tq2\tq3\tq4\n");
   for (p = ptable.proc; p < &ptable.proc[NPROC]; p++)
   {
