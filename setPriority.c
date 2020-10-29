@@ -8,11 +8,15 @@ int main(int argc, char *argv[])
 {
     if (argc != 3)
     {
-        printf(1, "Usage: setPriority new_priority pid\n");
+        printf(1, "Usage: setPriority <new priority> <pid>\n");
         exit();
     }
     int priority = atoi(argv[1]);
     int pid = atoi(argv[2]);
-    set_priority(priority, pid);
+    printf(1, "%d %d prio pid\n", priority, pid);
+    if (set_priority(priority, pid) == -1)
+    {
+        printf(1, "No process with pid %d\n", pid);
+    }
     exit();
 }

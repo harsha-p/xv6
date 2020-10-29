@@ -64,14 +64,14 @@ struct proc
   int c_time;
   int e_time;
   int r_time;
-  int iotime;
+  int io_wtime;
   int w_time;
+  int tot_wtime;
   int n_run;
   int priority;
-  int ticks[5];
-  int cur_q;
-  int qetime[5];
-  int qtime[5];
+  int ticks[5];       // ticks received while running in MLFQ set to 0 when queue changes
+  int total_ticks[5]; // totla ticks received while running in MLFQ in a particular queue
+  // int qtime[5];       // total time spent in a queue in MLFQ
   int lasttime;
 };
 

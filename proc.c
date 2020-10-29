@@ -90,19 +90,24 @@ allocproc(void)
 found:
   p->state = EMBRYO;
   p->pid = nextpid++;
-  acquire(&tickslock);
+  // acquire(&tickslock);
   if (p->pid < 3)
     p->priority = 1;
   else
     p->priority = 60;
-  p->r_time = p->iotime = p->e_time = p->w_time = 0;
-  p->qtime[0] = 0;
-  p->qtime[1] = 0;
-  p->qtime[2] = 0;
-  p->qtime[3] = 0;
-  p->qtime[4] = 0;
+  p->r_time = p->io_wtime = p->e_time = p->w_time = 0;
+  p->ticks[0] = 0;
+  p->ticks[1] = 0;
+  p->ticks[2] = 0;
+  p->ticks[3] = 0;
+  p->ticks[4] = 0;
+  p->total_ticks[0] = 0;
+  p->total_ticks[1] = 0;
+  p->total_ticks[2] = 0;
+  p->total_ticks[3] = 0;
+  p->total_ticks[4] = 0;
   p->lasttime = ticks;
-  release(&tickslock);
+  // release(&tickslock);
   release(&ptable.lock);
 
   // Allocate kernel stack.
@@ -127,14 +132,15 @@ found:
   memset(p->context, 0, sizeof *p->context);
   p->context->eip = (uint)forkret;
   acquire(&ptable.lock);
-  acquire(&tickslock);
+  // acquire(&tickslock);
   p->c_time = ticks;
   p->w_time = ticks - p->lasttime;
+  p->tot_wtime = p->w_time;
 #ifdef MLFQ
   p->priority = 0;
   p->q[0] = ticks;
 #endif
-  release(&tickslock);
+  // release(&tickslock);
   release(&ptable.lock);
   return p;
 }
@@ -372,6 +378,7 @@ void scheduler(void)
       // to release ptable.lock and then reacquire it
       // before jumping back to us.
       p->n_run++;
+      p->w_time = 0;
       c->proc = p;
       switchuvm(p);
       p->state = RUNNING;
@@ -412,6 +419,7 @@ void scheduler(void)
     {
       min->n_run++;
       c->proc = min;
+      min->w_time = 0;
       switchuvm(min);
       min->state = RUNNING;
       swtch(&(c->scheduler), min->context);
@@ -445,6 +453,7 @@ void scheduler(void)
     if (found)
     {
       min->n_run++;
+      min->w_time = 0;
       c->proc = min;
       switchuvm(min);
       min->state = RUNNING;
@@ -640,19 +649,17 @@ void procdump(void)
 }
 
 // added -----------------------------------------------------------------------------------------------------------------------------------------------------
-int set_priority(int new, int pid)
+int set_priority(int priority, int pid)
 {
   struct proc *p;
-  cprintf("lol1\n");
   acquire(&ptable.lock);
-  cprintf("lol2\n");
   int old = -1;
   for (p = ptable.proc; p < &ptable.proc[NPROC]; p++)
   {
     if (p->pid == pid)
     {
       old = p->priority;
-      p->priority = new;
+      p->priority = priority;
       p->n_run = 0;
       cprintf("changed priority of %d from %d to %d\n", p->pid, old, p->priority);
       break;
@@ -695,11 +702,11 @@ int psinfo()
         cprintf("ZOMBIE\t");
       else if (p->state == RUNNING)
         cprintf("RUNNING\t\t");
-      // cprintf("%d\t%d\t%d\t%d\n", p->c_time, p->r_time, p->iotime, p->e_time);
+      // cprintf("%d\t%d\t%d\t%d\n", p->c_time, p->r_time, p->io_wtime, p->e_time);
       cprintf("%d\t%d\t%d\t", p->r_time, p->w_time, p->n_run);
 
 #ifdef MLFQ
-      cprintf("lol");
+      // cprintf("lol");
       cprintf("%d\t", p->cur_q);
       for (int i = 0; i < 5; i++)
         cprintf("%d\t", p->qtime[i]);
@@ -734,8 +741,8 @@ int waitx(int *waittime, int *runtime)
       if (p->state == ZOMBIE)
       {
         // Found one.
-        cprintf("\ncreatetime %d runtimr &d iotime %d endtime %d", p->c_time, p->r_time, p->iotime, p->e_time);
-        *waittime = p->w_time;
+        // cprintf("createtime %d runtime %d io_wtime %d endtime %d\n", p->c_time, p->r_time, p->io_wtime, p->e_time);
+        *waittime = p->tot_wtime;
         *runtime = p->r_time;
         pid = p->pid;
         kfree(p->kstack);
@@ -775,12 +782,22 @@ void updatetime(void)
     }
     if (p->state == SLEEPING)
     {
-      p->iotime++;
+      p->io_wtime++;
     }
     if (p->state == RUNNABLE)
     {
       p->w_time++;
+      p->tot_wtime++;
     }
+#ifdef MLFQ
+    // if (p->state == SLEEPING)
+    //   p->total_ticks[p->priority]++;
+    if (p->state == RUNNING)
+    {
+      p->ticks[p->priority]++;
+      p->total_ticks[p->priority]++;
+    }
+#endif
   }
   release(&ptable.lock);
 }

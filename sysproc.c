@@ -91,14 +91,21 @@ int sys_set_priority(void)
   int new, pid;
   if (argint(0, &new) < 0)
     return -1;
-  if (argint(0, &pid) < 0)
+  if (argint(1, &pid) < 0)
     return -1;
   return set_priority(new, pid);
 }
 
-int sys_waitx(int *a, int *b)
+int sys_waitx(void)
 {
-  return 0;
+  int *a, *b;
+  if (argptr(0, (char **)&a, sizeof(int)) < 0)
+    return -1;
+
+  if (argptr(1, (char **)&b, sizeof(int)) < 0)
+    return -1;
+
+  return waitx(a, b);
 }
 
 int sys_psinfo(void)
