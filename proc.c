@@ -14,13 +14,10 @@ struct
 
 static struct proc *initproc;
 
-struct proc *q0[NPROC];
-struct proc *q1[NPROC];
-struct proc *q2[NPROC];
-struct proc *q3[NPROC];
-struct proc *q4[NPROC];
+struct proc *q[5][NPROC];
 
-int l0 = -1, l1 = -1, l2 = -1, l3 = -1, l4 = -1, WTIME = 5, lastproc = -1, tickvalue = 1;
+int l[5] = {-1, -1, -1, -1, -1};
+int WTIME = 5, lastproc = -1, tickvalue = 1;
 int slice[5] = {1, 2, 4, 8, 16};
 int nextpid = 1;
 extern void forkret(void);
@@ -97,25 +94,23 @@ allocproc(void)
 found:
   p->state = EMBRYO;
   p->pid = nextpid++;
-  // acquire(&tickslock);
-  p->priority = 60;
   p->n_run = 0;
   p->r_time = 0;
   p->io_wtime = 0;
   p->e_time = 0;
   p->s_time = 0;
   p->c_time = 0;
-  p->ticks[0] = 0;
-  p->ticks[1] = 0;
-  p->ticks[2] = 0;
-  p->ticks[3] = 0;
-  p->ticks[4] = 0;
-  p->total_ticks[0] = 0;
-  p->total_ticks[1] = 0;
-  p->total_ticks[2] = 0;
-  p->total_ticks[3] = 0;
-  p->total_ticks[4] = 0;
-  // release(&tickslock);
+  p->tot_wtime = 0;
+  p->Ticks[0] = 0;
+  p->Ticks[1] = 0;
+  p->Ticks[2] = 0;
+  p->Ticks[3] = 0;
+  p->Ticks[4] = 0;
+  p->total_Ticks[0] = 0;
+  p->total_Ticks[1] = 0;
+  p->total_Ticks[2] = 0;
+  p->total_Ticks[3] = 0;
+  p->total_Ticks[4] = 0;
   release(&ptable.lock);
 
   // Allocate kernel stack.
@@ -140,20 +135,22 @@ found:
   memset(p->context, 0, sizeof *p->context);
   p->context->eip = (uint)forkret;
   acquire(&ptable.lock);
-  // acquire(&tickslock);
   p->c_time = ticks;
 #ifdef MLFQ
   p->priority = 0;
-  q0[++l0] = p;
+  l[0]++;
+  q[0][l[0]] = p;
 #else
 #ifdef PBS
   if (p->pid <= 2)
     p->priority = 1;
+  else
+    p->priority = 60;
+
 #else
   p->priority = -1;
 #endif
 #endif
-  // release(&tickslock);
   release(&ptable.lock);
   return p;
 }
@@ -337,16 +334,22 @@ int wait(void)
       {
         // Found one.
         pid = p->pid;
+        // cprintf("calling kfree 1\n");
         kfree(p->kstack);
+        // cprintf("calling kfree 2\n");
         p->kstack = 0;
+        // cprintf("calling kfree 3\n");
         freevm(p->pgdir);
+        // cprintf("calling kfree 4\n");
         p->n_run = 0;
         p->pid = 0;
         p->parent = 0;
         p->name[0] = 0;
         p->killed = 0;
         p->state = UNUSED;
+        // cprintf("calling kfree 5\n");
         release(&ptable.lock);
+        // cprintf("calling kfree 6\n");
         return pid;
       }
     }
@@ -396,7 +399,6 @@ void scheduler(void)
         p->n_run++;
         lastproc = p->pid;
       }
-      p->s_time = ticks;
       c->proc = p;
       switchuvm(p);
       p->state = RUNNING;
@@ -433,7 +435,6 @@ void scheduler(void)
         lastproc = min->pid;
       }
       c->proc = min;
-      min->s_time = ticks;
       switchuvm(min);
       min->state = RUNNING;
       swtch(&(c->scheduler), min->context);
@@ -466,7 +467,6 @@ void scheduler(void)
         min->n_run++;
         lastproc = min->pid;
       }
-      min->s_time = ticks;
       c->proc = min;
       switchuvm(min);
       min->state = RUNNING;
@@ -478,238 +478,83 @@ void scheduler(void)
 #else
 #ifdef MLFQ
     acquire(&ptable.lock);
-    //ageing
-    for (int i = 0; i <= l1; i++)
+    //check time slice
+    for (int Q = 0; Q < 4; Q++)
     {
-      if (q1[i]->state != RUNNABLE)
-        continue;
-      if ((ticks - q1[i]->s_time) > WTIME)
-      {
-        q1[i]->priority -= 1;
-        q1[i]->s_time = ticks;
-        q1[i]->ticks[q1[i]->priority] = 0;
-        q1[i]->s_time = ticks;
-        q0[++l0] = q1[i];
-        for (int j = i; j < l1; j++)
-          q1[j] = q1[j + 1];
-        l1--;
-      }
+      if (l[Q] >= 0)
+        for (int i = 0; i <= l[Q]; i++)
+        {
+          if (q[Q][i]->state != RUNNABLE)
+            continue;
+          if (q[Q][i]->Ticks[Q] >= (slice[Q] * tickvalue))
+          {
+            q[Q][i]->priority += 1;
+            q[Q][i]->s_time = ticks;
+            q[Q][i]->Ticks[q[Q][i]->priority] = 0;
+            l[Q + 1] += 1;
+            q[Q + 1][l[Q + 1]] = q[Q][i];
+            for (int j = i; j < l[Q]; j++)
+              q[Q][j] = q[Q][j + 1];
+            l[Q]--;
+          }
+        }
     }
-    for (int i = 0; i <= l2; i++)
-    {
-      if (q2[i]->state != RUNNABLE)
-        continue;
-      if ((ticks - q2[i]->s_time) > WTIME)
+    if (l[4] >= 0)
+      for (int i = 0; i <= l[4]; i++)
       {
-        q2[i]->priority -= 1;
-        q2[i]->s_time = ticks;
-        q2[i]->ticks[q2[i]->priority] = 0;
-        q2[i]->s_time = ticks;
-        q1[++l1] = q2[i];
-        for (int j = i; j < l2; j++)
-          q2[j] = q1[j + 1];
-        l2--;
+        if (q[4][i]->state != RUNNABLE)
+          continue;
+        if (q[4][i]->Ticks[4] >= (slice[4] * tickvalue))
+        {
+          q[4][i]->s_time = ticks;
+          q[4][i]->Ticks[q[1][i]->priority] = 0;
+          q[4][l[4]] = q[4][i];
+          for (int j = i; j < l[4]; j++)
+            q[4][j] = q[4][j + 1];
+        }
       }
-    }
-    for (int i = 0; i <= l3; i++)
+
+    //check ageing
+    for (int Q = 1; Q <= 4; Q++)
     {
-      if (q3[i]->state != RUNNABLE)
-        continue;
-      if ((ticks - q3[i]->s_time) > WTIME)
-      {
-        q3[i]->priority -= 1;
-        q3[i]->s_time = ticks;
-        q3[i]->ticks[q3[i]->priority] = 0;
-        q3[i]->s_time = ticks;
-        q2[++l2] = q2[i];
-        for (int j = i; j < l3; j++)
-          q3[j] = q3[j + 1];
-        l3--;
-      }
-    }
-    for (int i = 0; i <= l4; i++)
-    {
-      if (q4[i]->state != RUNNABLE)
-        continue;
-      if ((ticks - q4[i]->s_time) > WTIME)
-      {
-        q4[i]->priority--;
-        q4[i]->s_time = ticks;
-        q4[i]->ticks[q4[i]->priority] = 0;
-        q4[i]->s_time = ticks;
-        q3[++l3] = q4[i];
-        for (int j = i; j < l4; j++)
-          q4[j] = q4[j + 1];
-        l4--;
-      }
+      if (l[Q] >= 0)
+        for (int i = 0; i <= l[Q]; i++)
+        {
+          if (q[Q][i]->state != RUNNABLE)
+            continue;
+          if ((ticks - q[Q][i]->s_time) > WTIME)
+          {
+            q[Q][i]->priority -= 1;
+            q[Q][i]->s_time = ticks;
+            q[Q][i]->Ticks[q[1][i]->priority] = 0;
+            l[Q - 1] += 1;
+            q[Q - 1][l[Q - 1]] = q[Q][i];
+            for (int j = i; j < l[Q]; j++)
+              q[Q][j] = q[Q][j + 1];
+            l[Q]--;
+          }
+        }
     }
     //scheduling
-    struct proc *min;
-    if (l0 >= 0)
+    for (int Q = 0; Q <= 4; Q++)
     {
-      // psinfo();
-      for (int i = 0; i <= l0; i++)
+      if (l[Q] >= 0)
       {
-        if (q0[i]->state != RUNNABLE)
-          continue;
-        min = q0[i];
-        if (lastproc != min->pid)
+        for (int i = 0; i <= l[Q]; i++)
         {
-          min->n_run++;
-          lastproc = min->pid;
-        }
-        min->s_time = ticks;
-        c->proc = min;
-        switchuvm(min);
-        min->state = RUNNING;
-        swtch(&(c->scheduler), min->context);
-        switchkvm();
-        c->proc = 0;
-        if (min->ticks[min->priority] >= (slice[min->priority] * tickvalue) || min->killed)
-        {
-          if (min->killed == 0)
+          if (q[Q][i]->state != RUNNABLE)
+            continue;
+          if (lastproc != q[Q][i]->pid)
           {
-            min->priority++;
-            min->ticks[min->priority] = 0;
-            q1[++l1] = min;
+            q[Q][i]->n_run++;
+            lastproc = q[Q][i]->pid;
           }
-          for (int j = i; j < l0; j++)
-            q0[j] = q0[j + 1];
-          l0--;
-        }
-      }
-    }
-    else if (l1 >= 0)
-    {
-      for (int i = 0; i <= l1; i++)
-      {
-        if (q1[i]->state != RUNNABLE)
-          continue;
-        q1[i]->s_time = ticks;
-        min = q1[i];
-        if (lastproc != min->pid)
-        {
-          min->n_run++;
-          lastproc = min->pid;
-        }
-        min->s_time = ticks;
-        c->proc = min;
-        switchuvm(min);
-        min->state = RUNNING;
-        swtch(&(c->scheduler), min->context);
-        switchkvm();
-        c->proc = 0;
-        if (min->ticks[min->priority] >= slice[min->priority] * tickvalue || min->killed)
-        {
-          if (min->killed == 0)
-          {
-            min->priority++;
-            min->ticks[min->priority] = 0;
-            q2[++l2] = min;
-          }
-          for (int j = i; j < l1; j++)
-            q1[j] = q1[j + 1];
-          l1--;
-        }
-      }
-    }
-    else if (l2 >= 0)
-    {
-      for (int i = 0; i <= l2; i++)
-      {
-        if (q2[i]->state != RUNNABLE)
-          continue;
-        q2[i]->s_time = ticks;
-        min = q2[i];
-        if (lastproc != min->pid)
-        {
-          min->n_run++;
-          lastproc = min->pid;
-        }
-        min->s_time = ticks;
-        c->proc = min;
-        switchuvm(min);
-        min->state = RUNNING;
-        swtch(&(c->scheduler), min->context);
-        switchkvm();
-        c->proc = 0;
-        if (min->ticks[min->priority] >= slice[min->priority] * tickvalue || min->killed)
-        {
-          if (min->killed == 0)
-          {
-            min->priority++;
-            min->ticks[min->priority] = 0;
-            q3[++l3] = min;
-          }
-          for (int j = i; j < l2; j++)
-            q2[j] = q2[j + 1];
-          l2--;
-        }
-      }
-    }
-    else if (l3 >= 0)
-    {
-      for (int i = 0; i <= l3; i++)
-      {
-        if (q3[i]->state != RUNNABLE)
-          continue;
-        q3[i]->s_time = ticks;
-        min = q3[i];
-        if (lastproc != min->pid)
-        {
-          min->n_run++;
-          lastproc = min->pid;
-        }
-        min->s_time = ticks;
-        c->proc = min;
-        switchuvm(min);
-        min->state = RUNNING;
-        swtch(&(c->scheduler), min->context);
-        switchkvm();
-        c->proc = 0;
-        if (min->ticks[min->priority] >= slice[min->priority] * tickvalue || min->killed)
-        {
-          if (min->killed == 0)
-          {
-            min->priority++;
-            min->ticks[min->priority] = 0;
-            q4[++l4] = min;
-          }
-          for (int j = i; j < l3; j++)
-            q3[j] = q3[j + 1];
-          l3--;
-        }
-      }
-    }
-    else if (l4 >= 0)
-    {
-      for (int i = 0; i <= l4; i++)
-      {
-        if (q4[i]->state != RUNNABLE)
-          continue;
-        q4[i]->s_time = ticks;
-        min = q4[i];
-        if (lastproc != min->pid)
-        {
-          min->n_run++;
-          lastproc = min->pid;
-        }
-        min->s_time = ticks;
-        c->proc = min;
-        switchuvm(min);
-        min->state = RUNNING;
-        swtch(&(c->scheduler), min->context);
-        switchkvm();
-        c->proc = 0;
-        if (min->ticks[min->priority] >= slice[min->priority] * tickvalue || min->killed)
-        {
-          min->ticks[min->priority] = 0;
-          for (int j = i; j < l4; j++)
-            q4[j] = q4[j + 1];
-          if (min->killed == 0)
-            q4[l4] = min;
-          else
-            l4--;
+          c->proc = q[Q][i];
+          switchuvm(q[Q][i]);
+          q[Q][i]->state = RUNNING;
+          swtch(&(c->scheduler), q[Q][i]->context);
+          switchkvm();
+          c->proc = 0;
         }
       }
     }
@@ -803,7 +648,9 @@ void sleep(void *chan, struct spinlock *lk)
   // Go to sleep.
   p->chan = chan;
   p->state = SLEEPING;
-
+#ifdef MLFQ
+  p->Ticks[p->priority] = 0;
+#endif
   sched();
 
   // Tidy up.
@@ -963,10 +810,9 @@ int psinfo()
         cprintf("RUNNING\t\t%d\t%d\t%d\t", p->r_time, 0, p->n_run);
 
 #ifdef MLFQ
-      // cprintf("lol");
       cprintf("%d\t", p->priority);
       for (int i = 0; i < 5; i++)
-        cprintf("%d\t", p->total_ticks[i]);
+        cprintf("%d\t", p->total_Ticks[i]);
 #else
       cprintf("-1\t");
       for (int i = 0; i < 5; i++)
@@ -998,7 +844,8 @@ int waitx(int *waittime, int *runtime)
       if (p->state == ZOMBIE)
       {
         // Found one.
-        *waittime = p->e_time - p->io_wtime - p->c_time - p->r_time;
+        // *waittime = p->e_time - p->io_wtime - p->c_time - p->r_time;
+        *waittime = p->tot_wtime;
         *runtime = p->r_time;
         pid = p->pid;
         kfree(p->kstack);
@@ -1025,4 +872,29 @@ int waitx(int *waittime, int *runtime)
     // Wait for children to exit.  (See wakeup1 call in proc_exit.)
     sleep(curproc, &ptable.lock); //DOC: wait-sleep
   }
+}
+
+void updatetime()
+{
+  acquire(&ptable.lock);
+  for (struct proc *p = ptable.proc; p < &ptable.proc[NPROC]; p++)
+  {
+    if (p->state == RUNNING)
+    {
+      p->r_time += 1;
+#ifdef MLFQ
+      p->Ticks[p->priority] += 1;
+      p->total_Ticks[p->priority] += 1;
+#endif
+    }
+    if (p->state == SLEEPING)
+    {
+      p->io_wtime += 1;
+    }
+    if (p->state == RUNNABLE)
+    {
+      p->tot_wtime += 1;
+    }
+  }
+  release(&ptable.lock);
 }
