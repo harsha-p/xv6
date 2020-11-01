@@ -61,18 +61,18 @@ struct proc
   struct inode *cwd;          // Current directory
   char name[16];              // Process name (debugging)
   //added ------------------------------------------------
+  int s_time;
   int c_time;
   int e_time;
   int r_time;
   int io_wtime;
-  int w_time;
-  int tot_wtime;
+  // int w_time;
+  // int tot_wtime;
   int n_run;
   int priority;
   int ticks[5];       // ticks received while running in MLFQ set to 0 when queue changes
   int total_ticks[5]; // totla ticks received while running in MLFQ in a particular queue
   // int qtime[5];       // total time spent in a queue in MLFQ
-  int lasttime;
 };
 
 // Process memory is laid out contiguously, low addresses first:
