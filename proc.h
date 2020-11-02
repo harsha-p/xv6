@@ -66,7 +66,7 @@ struct proc
   int e_time;
   int r_time;
   int io_wtime;
-  // int w_time;
+  int w_time;
   int tot_wtime;
   int n_run;
   int priority;

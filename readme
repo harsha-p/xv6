@@ -1,0 +1,66 @@
+Variable added to proc structure:
+
+    int s_time;         -   time at which the process became RUNNABLE (started waiting for cpu). reset to zero if process runs on cpu.
+    int c_time;         -   time at which the process is created.
+    int e_time;         -   time at which the process exited (set in exit function).
+    int r_time;         -   time for which process is RUNNING (running on cpu).
+    int io_wtime;       -   time for which process is SLEEPING.
+    int w_time;         -   wait time for cpu. reset to zero when the process runs on a cpu or changes queue.
+    int tot_wtime;      -   total waittime for cpu for a process.
+    int priority;       -   priority of a process.
+    int Ticks[5];       -   ticks received in a paricular queue. reset to zero when queue is changed.
+    int total_Ticks[5]; -   total ticks received by the process while it is running (RUNNING) in particular queue.
+    int n_run;          -   number of times process is picked by the scheduler.we maintain a variable lastproc which stores the pid of last executed process.
+                            when a process is picked by the scheduler , if it is not the last executed process n_run value is increment
+
+w_time (ps) is set to zero when ever the process changes to RUNNABLE state (and when the process changes queue in MLFQ) => changes made in userinit, yield, fork,wakeup1,kill in proc.c
+
+For every increment in ticks (in trap.c), updatetime function (in proc.c) increments the following 
+    1. runtime for running processes
+    2. ticks received by a running process in its current queue if the scheduler is MLFQ.
+    3. iowaittime for sleeping processes
+    4. waittime w_time (ps),total waittime (for waitx) for cpu for runnable processes.
+
+System calls/User programs:
+    1. waitx :
+        Almost similar to wait.When we found a zombie we calculate and return its runtime and total waittime which are available in proc structure of the process.
+        A user program time is created to use waitx.
+
+    2. ps (system call psinfo):
+        Prints the following details in order for every process which is in state ZOMBIE or RUNNING or RUNNABLE or SLEEPING.
+        1. pid of process 
+        2. Priority of process
+        3. State of process => (RUNNABLE| RUNNING|ZOMBIE|SLEEPING)
+        4. r_time
+        5. w_time => tot_wtime
+        6. n_run
+        7. cur_q => represents current queue of the process. -1 if scheduler is not MLFQ. priority of a process if MLFQ.
+        8. q0,q1,q2,q3,q4,q5 => total_Ticks[i].
+
+    3. setpriority (user progrma setPriority):
+        takes new priority and pid of a process and changes the priority to new priority and return the value of old priority.
+        calls yield to reschedule if the priority increases.
+    
+SCHEDULERS:
+
+1. FCFS:
+    Runnable process which came first (minimum c_time) is picked up by the scheduler. 
+    yield() is inhibited (in trap.c) so that the process runs till it no longer needs cpu time.
+
+2. PBS:
+    Runnable process with highest priority is picked up by the scheduler.
+    Priority of a process can be changed by setpriority system call or setPriority user program.
+
+3. MLFQ:
+    For every cpu tick, ticks for running processes are updated and scheduler is run again to find new highest priority process available.
+    When process is created, its priority is set to 0 (highest priority).
+    If a process releses cpu voluntarily and becomes RUNNABLE again it should enter same queue.
+    To implement this when a process changes state to SLEEPING Ticks of the process for current queue is set to zero.
+    So that when it changes to RUNNABLE again, it is as if the process created just now and enters same queue as priority is not changed. 
+    The things we need to do are:
+    Aging:
+        If the process is waiting for too long (w_time > WTIME), it is upgraded to higher priority queue (if exists).
+    Downgrage process:
+        If a process uses its time slice completly (Ticks > timeslice*tickvalue for the present queue), it is downgraded to lower queue.
+    Pick process:
+        Select a runnable process with highest priority available.

@@ -13,10 +13,13 @@ int main(int argc, char *argv[])
     }
     int priority = atoi(argv[1]);
     int pid = atoi(argv[2]);
-    printf(1, "%d %d prio pid\n", priority, pid);
-    if (set_priority(priority, pid) == -1)
+    int ret;
+    if ((ret = set_priority(priority, pid)) < 0)
     {
-        printf(1, "No process with pid %d\n", pid);
+        if (ret == -1)
+            printf(1, "invalid priority\n");
+        if (ret == -2)
+            printf(1, "No process with pid %d or ", pid);
     }
     exit();
 }
